@@ -12,5 +12,5 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
   },
-  webServer: { command: 'npm run preview', url: 'http://127.0.0.1:4173', reuseExistingServer: !process.env.CI },
+  webServer: { command: process.env.PORTAL_TEST_DEV ? 'npm run dev -- --port 4173' : 'npm run preview', url: 'http://127.0.0.1:4173', reuseExistingServer: false },
 });

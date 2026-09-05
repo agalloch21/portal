@@ -37,7 +37,8 @@ export interface FaceObservation {
 
 /** Raw, unmirrored front-camera pixels. All returned distances are millimetres. */
 export function estimateEye(face: FaceObservation, calibration: Calibration, viewport: { width: number; height: number }, angle: number): Eye | null {
-  if (face.eyePixels < 8 || !Number.isFinite(face.eyePixels)) return null;
+  if (![face.centerX, face.centerY, face.eyePixels, face.foreshortening, face.width, face.height].every(Number.isFinite)
+    || face.eyePixels <= 0 || face.width <= 0 || face.height <= 0) return null;
   const focal = face.width / (2 * Math.tan(Math.PI / 6));
   const rawZ = focal * 63 * clamp(face.foreshortening, 0.55, 1) / face.eyePixels;
   const z = clamp(rawZ * calibration.distanceScale, 150, 1000);
@@ -54,7 +55,7 @@ export function estimateEye(face: FaceObservation, calibration: Calibration, vie
   const r = angle * Math.PI / 180;
   x += Math.sin(r) * cameraOffset;
   y += Math.cos(r) * cameraOffset;
-  return { x: clamp(x, -250, 250), y: clamp(y, -250, 250), z };
+  return Number.isFinite(x) && Number.isFinite(y) ? { x, y, z } : null;
 }
 
 export function smoothEye(current: Eye, target: Eye, dt: number): Eye {

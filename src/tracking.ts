@@ -14,11 +14,28 @@ export class EyeTracker {
   private busy = false;
   private lastVideoTime = -1;
   private frameTimeout = 0;
-  private interval = 1000 / 15;
+  private interval = 1000 / 30;
+  private videoCallback = 0;
+  private lastFrameStart = -Infinity;
   private started = false;
+  private lastResult = 0;
+  private resultInterval = 0;
+  private processingMs = 0;
+  get metrics() {
+    return { mode: this.worker ? 'Worker' : this.detector ? 'Main thread' : '-',
+      hz: this.lastResult && performance.now() - this.lastResult < 1000 && this.resultInterval ? 1000 / this.resultInterval : 0,
+      latency: this.processingMs };
+  }
+  private deliver(face: FaceObservation | null, timestamp: number) {
+    const now = performance.now();
+    if (this.lastResult) this.resultInterval = this.resultInterval ? this.resultInterval * .8 + (now - this.lastResult) * .2 : now - this.lastResult;
+    this.processingMs = this.processingMs ? this.processingMs * .8 + (now - timestamp) * .2 : now - timestamp;
+    this.lastResult = now;
+    this.onFace(face, timestamp);
+  }
   state: State = 'off';
   onState: (state: State) => void = () => {};
-  onFace: (face: FaceObservation | null) => void = () => {};
+  onFace: (face: FaceObservation | null, timestamp: number) => void = () => {};
   get active() { return this.started; }
 
   constructor() {
@@ -44,7 +61,7 @@ export class EyeTracker {
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 20, max: 30 } } });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30, max: 30 } } });
       if (generation !== this.generation) { stream.getTracks().forEach(track => track.stop()); return; }
       this.stream = stream;
       stream.getVideoTracks().forEach(track => track.addEventListener('ended', () => {
@@ -54,7 +71,8 @@ export class EyeTracker {
       await this.video.play();
       if (generation !== this.generation) return;
       try { await this.startWorker(generation); }
-      catch {
+      catch (error) {
+        console.warn('Portal worker initialization failed:', error);
         if (generation !== this.generation) return;
         this.worker?.terminate();
         this.worker = null;
@@ -71,11 +89,14 @@ export class EyeTracker {
 
   private async startWorker(generation: number) {
     if (!window.Worker || !window.createImageBitmap) throw new Error('Worker unavailable');
-    const worker = new Worker(new URL('./face-worker.ts', import.meta.url), { type: 'module' });
+    // MediaPipe's WASM loader calls importScripts(), requiring a classic worker.
+    const worker = import.meta.env.DEV
+      ? new Worker(`${import.meta.env.BASE_URL}__portal_face_worker.js`)
+      : new Worker(new URL('./face-worker.ts', import.meta.url));
     this.worker = worker;
     await new Promise<void>((resolve, reject) => {
       const timeout = window.setTimeout(() => reject(new Error('Worker init timed out')), 12000);
-      worker.onerror = () => { clearTimeout(timeout); reject(new Error('Worker failed')); };
+      worker.onerror = event => { clearTimeout(timeout); reject(new Error(event.message || 'Worker failed')); };
       worker.onmessage = ({ data }) => {
         if (data.type === 'ready') { clearTimeout(timeout); resolve(); }
         if (data.type === 'error') { clearTimeout(timeout); reject(new Error(data.message)); }
@@ -87,7 +108,7 @@ export class EyeTracker {
       if (generation !== this.generation) return;
       clearTimeout(this.frameTimeout);
       this.busy = false;
-      if (data.type === 'result') this.onFace(data.face);
+      if (data.type === 'result') { this.deliver(data.face, data.timestamp); this.schedule(); }
       else if (data.type === 'error') void this.recoverOnMainThread(generation);
     };
     worker.onerror = () => { if (generation === this.generation) void this.recoverOnMainThread(generation); };
@@ -105,12 +126,12 @@ export class EyeTracker {
     });
     if (generation !== this.generation) { detector.close(); return; }
     this.detector = detector;
-    this.interval = 1000 / 8;
+    this.interval = 1000 / 15;
   }
 
   private async recoverOnMainThread(generation: number) {
     if (!this.worker) return;
-    clearTimeout(this.timer);
+    this.cancelScheduledFrame();
     clearTimeout(this.frameTimeout);
     this.worker.terminate();
     this.worker = null;
@@ -124,9 +145,32 @@ export class EyeTracker {
     } catch { if (generation === this.generation) this.fail('error'); }
   }
 
-  private schedule() {
+  private cancelScheduledFrame() {
     clearTimeout(this.timer);
-    if (this.started) this.timer = window.setTimeout(() => void this.frame(), this.interval);
+    if (this.videoCallback) this.video.cancelVideoFrameCallback(this.videoCallback);
+    this.videoCallback = 0;
+  }
+
+  private schedule() {
+    this.cancelScheduledFrame();
+    if (!this.started || this.busy) return;
+    // A frame may already have arrived while inference was busy. Consume the latest
+    // decoded frame instead of always waiting for one more camera frame callback.
+    if (this.video.readyState >= 2 && this.video.currentTime !== this.lastVideoTime) {
+      const wait = Math.max(0, this.interval - 2 - (performance.now() - this.lastFrameStart));
+      this.timer = window.setTimeout(() => void this.frame(), wait);
+      return;
+    }
+    if (typeof this.video.requestVideoFrameCallback === 'function') {
+      this.videoCallback = this.video.requestVideoFrameCallback(() => {
+        this.videoCallback = 0;
+        if (performance.now() - this.lastFrameStart < this.interval - 2) this.schedule();
+        else void this.frame();
+      });
+    } else {
+      const delay = Math.max(8, this.interval - (performance.now() - this.lastFrameStart));
+      this.timer = window.setTimeout(() => void this.frame(), delay);
+    }
   }
 
   private async frame() {
@@ -137,6 +181,7 @@ export class EyeTracker {
     this.lastVideoTime = video.currentTime;
     this.busy = true;
     const timestamp = performance.now();
+    this.lastFrameStart = timestamp;
     try {
       if (this.worker) {
         const bitmap = await createImageBitmap(video);
@@ -145,7 +190,7 @@ export class EyeTracker {
         this.frameTimeout = window.setTimeout(() => void this.recoverOnMainThread(generation), 3000);
       } else if (this.detector) {
         const result = this.detector.detectForVideo(video, timestamp);
-        this.onFace(faceObservation(result, video.videoWidth, video.videoHeight));
+        this.deliver(faceObservation(result, video.videoWidth, video.videoHeight), timestamp);
         this.busy = false;
       }
     } catch {
@@ -154,16 +199,16 @@ export class EyeTracker {
       this.fail('error');
       return;
     }
-    if (generation === this.generation) this.schedule();
+    if (generation === this.generation && !this.busy) this.schedule();
   }
 
-  slowDown() { this.interval = Math.max(this.interval, 1000 / 8); }
+  slowDown() { this.interval = Math.max(this.interval, 1000 / 15); }
 
   private fail(state: 'denied' | 'error') { this.stop(); this.setState(state); }
   stop() {
     this.started = false;
     ++this.generation;
-    clearTimeout(this.timer);
+    this.cancelScheduledFrame();
     clearTimeout(this.frameTimeout);
     this.worker?.terminate();
     this.worker = null;
@@ -175,8 +220,10 @@ export class EyeTracker {
     this.video.srcObject = null;
     this.busy = false;
     this.lastVideoTime = -1;
-    this.interval = 1000 / 15;
+    this.interval = 1000 / 30;
+    this.lastFrameStart = -Infinity;
+    this.lastResult = this.resultInterval = this.processingMs = 0;
     this.setState('off');
-    this.onFace(null);
+    this.onFace(null, performance.now());
   }
 }

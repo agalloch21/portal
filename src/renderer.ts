@@ -35,6 +35,7 @@ void main() {
 }`;
 
 export class PortalRenderer {
+  private canvas: HTMLCanvasElement;
   private renderer: WebGLRenderer;
   private scene = new Scene();
   private camera = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -48,6 +49,7 @@ export class PortalRenderer {
   private lastHeight = 0;
 
   constructor(canvas: HTMLCanvasElement) {
+    this.canvas = canvas;
     this.renderer = new WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'default' });
     this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.setClearColor(new Color('#c7b8da'));
@@ -80,7 +82,7 @@ export class PortalRenderer {
   }
 
   draw(eye: Eye, size: { width: number; height: number }, rotation: Quaternion) {
-    const width = window.innerWidth, height = window.innerHeight;
+    const width = this.canvas.clientWidth, height = this.canvas.clientHeight;
     if (width !== this.lastWidth || height !== this.lastHeight) {
       this.renderer.setSize(width, height, false);
       this.lastWidth = width;

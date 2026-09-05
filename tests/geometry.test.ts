@@ -66,8 +66,8 @@ describe('eye estimates and calibration', () => {
     const turned = estimateEye({ ...observation, eyePixels: 70, foreshortening: .7 }, defaults, viewport, 0)!;
     expect(turned.z).toBeCloseTo(front.z);
   });
-  it('uses calibration scale and rejects tiny detections', () => {
-    expect(estimateEye({ ...observation, eyePixels: 2 }, defaults, viewport, 0)).toBeNull();
+  it('uses calibration scale and rejects only invalid detection geometry', () => {
+    expect(estimateEye({ ...observation, eyePixels: 0 }, defaults, viewport, 0)).toBeNull();
     expect(estimateEye(observation, { ...defaults, distanceScale: 1.2 }, viewport, 0)!.z).toBeCloseTo(419.0177, 2);
   });
   it('recovers safe defaults from malformed persisted settings', () => {

@@ -19,7 +19,7 @@ self.onmessage = async ({ data }) => {
     const bitmap = data.bitmap as ImageBitmap;
     try {
       const result = detector?.detectForVideo(bitmap, data.timestamp);
-      self.postMessage({ type: 'result', face: result ? faceObservation(result, bitmap.width, bitmap.height) : null });
+      self.postMessage({ type: 'result', timestamp: data.timestamp, face: result ? faceObservation(result, bitmap.width, bitmap.height) : null });
     } catch (error) {
       self.postMessage({ type: 'error', message: String(error) });
     } finally { bitmap.close(); }

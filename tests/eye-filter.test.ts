@@ -1,0 +1,189 @@
+import { expect, it } from 'vitest';
+import { EyeFilter } from '../src/eye-filter';
+import { panoramaView } from '../src/view';
+import { defaults, estimateEye, rayForPixel } from '../src/geometry';
+
+function ready() {
+  const f = new EyeFilter();
+  for (let i = 0; i < 10; i++) f.sample({ x: 5, y: 30, z: 350 }, -360 + i * 40);
+  return f;
+}
+it('calibrates after a stable window without restricting later travel', () => {
+  const f = ready();
+  expect(f.calibrated).toBe(true);
+  expect(f.update(.1, 0)).toEqual({ x: 0, y: 0 });
+  f.sample({ x: 40, y: 30, z: 350 }, 70);
+  expect(f.update(.07, 70).x).toBeGreaterThan(0);
+});
+it('smooths every small valid movement and rejects invalid observations', () => {
+  const f = ready();
+  f.sample({ x: 6, y: 30, z: 350 }, 70);
+  const first = f.update(.07, 70).x;
+  expect(first).toBeGreaterThan(0);
+  expect(first).toBeLessThan(3 / 350);
+  f.sample({ x: NaN, y: 30, z: 350 }, 140);
+  f.sample({ x: 100, y: 30, z: 350 }, 60);
+  const next = f.update(.07, 140).x;
+  expect(next).toBeGreaterThan(first);
+  expect(next).toBeLessThan(3 / 350);
+});
+it('triples lateral displacement while retaining the fixed projection', () => {
+  const f = ready();
+  let offset = { x: 0, y: 0 };
+  for (let t = 70; t < 2100; t += 70) {
+    f.sample({ x: 40, y: 30, z: 350 }, t);
+    offset = f.update(.07, t);
+  }
+  expect(offset.x).toBeCloseTo(.3, 5);
+  const { size, eye } = panoramaView(390, 844);
+  const angle = rayForPixel(-size.width/2, 0, eye).angleTo(rayForPixel(size.width/2, 0, eye));
+  expect(angle * 180 / Math.PI).toBeCloseTo(60);
+  const focal = eye.z;
+  eye.x = offset.x * eye.z;
+  expect(rayForPixel(0, 0, eye).x).toBeLessThan(-.28);
+  expect(eye.z).toBe(focal);
+});
+it('accepts an immediate large movement and continues beyond the old cap in both axes', () => {
+  const f = ready();
+  f.sample({ x: 180, y: -145, z: 350 }, 70);
+  const first = f.update(.07, 70);
+  expect(first.x).toBeGreaterThan(.25);
+  expect(first.y).toBeLessThan(-.25);
+  f.sample({ x: 355, y: -320, z: 350 }, 140);
+  const second = f.update(.07, 140);
+  expect(second.x).toBeGreaterThan(first.x);
+  expect(second.y).toBeLessThan(first.y);
+  expect(f.visible(140)).toBe(true);
+});
+it('keeps off-center camera estimates instead of clipping them to 250 mm', () => {
+  const face = { width: 640, height: 480, centerX: 10, centerY: 10, eyePixels: 40, foreshortening: 1 };
+  const eye = estimateEye(face, defaults, { width: 390, height: 844 }, 0)!;
+  expect(eye.x).toBeGreaterThan(250);
+  expect(eye.y).toBeGreaterThan(250);
+  const f = ready();
+  f.sample(eye, 70);
+  expect(f.update(.07, 70).x).toBeGreaterThan(.25);
+});
+it('freezes the displayed position on loss and accepts distant reacquisition', () => {
+  const f = ready();
+  f.sample({ x: 180, y: 30, z: 350 }, 70);
+  const first = f.update(.1, 70).x;
+  f.sample(null, 140);
+  expect(f.update(.1, 140).x).toBe(first);
+  let result = f.update(.1, 800);
+  for (let t = 900; t < 4000; t += 100) result = f.update(.1, t);
+  expect(result.x).toBe(first);
+  f.sample({ x: -170, y: 30, z: 350 }, 4100);
+  expect(f.update(.07, 4100).x).toBeLessThan(-.25);
+});
+it('explicit recalibration recenters and requires a fresh stable window', () => {
+  const f = ready();
+  f.sample({ x: 40, y: 30, z: 350 }, 70);
+  const before = f.update(.1, 70).x;
+  f.reset();
+  expect(f.calibrated).toBe(false);
+  f.sample({ x: 180, y: 30, z: 350 }, 140);
+  expect(f.calibrated).toBe(false);
+  const after = f.update(.016, 140).x;
+  expect(after).toBeGreaterThan(0);
+  expect(after).toBeLessThan(before);
+});
+
+it('does not calibrate during continuous large motion', () => {
+  const f = new EyeFilter();
+  for (let i = 0; i < 30; i++) f.sample({ x: i % 2 ? 100 : 0, y: 0, z: 350 }, i * 40);
+  expect(f.calibrated).toBe(false);
+});
+it('freezes on silent input loss and keeps the same baseline on return', () => {
+  const f = ready();
+  f.sample({ x: 40, y: 30, z: 350 }, 40);
+  const before = f.update(.016, 40);
+  expect(f.update(.016, 400)).toEqual(before);
+  expect(f.update(.1, 2000)).toEqual(before);
+  f.sample({ x: 75, y: 30, z: 350 }, 2100);
+  expect(f.update(.016, 2100).x).toBeGreaterThan(before.x);
+});
+
+it('does not mistake inference latency for a missing observation', () => {
+  const f = ready();
+  f.sample({ x: 40, y: 30, z: 350 }, 40, 400);
+  expect(f.update(.016, 400).x).toBeGreaterThan(0);
+});
+it('updates between observation frames instead of stepping only on inference', () => {
+  const f = ready();
+  f.sample({ x: 40, y: 30, z: 350 }, 40);
+  let previous = 0;
+  for (let t = 40; t < 100; t += 16) {
+    const x = f.update(.016, t).x;
+    expect(x).toBeGreaterThan(previous);
+    expect(x).toBeLessThan(.3);
+    previous = x;
+  }
+});
+
+it('reduces constant-motion lag with delayed 15 Hz observations', () => {
+  const f = ready();
+  let nextCapture = 0, old = 0, oldTarget = 0, oldError = 0, newError = 0;
+  for (let now = 0; now <= 1600; now += 16) {
+    while (nextCapture + 50 <= now) {
+      oldTarget = .5 * nextCapture / 1000;
+      f.sample({ x: 5 + oldTarget * 350 / 3, y: 30, z: 350 }, nextCapture, now);
+      nextCapture += 1000 / 15;
+    }
+    const current = f.update(.016, now).x;
+    const tau = Math.max(.035, .14 / (1 + 12 * Math.abs(oldTarget - old)));
+    old += (oldTarget - old) * (1 - Math.exp(-.016 / tau));
+    if (now > 500) {
+      oldError += Math.abs(.5 * now / 1000 - old);
+      newError += Math.abs(.5 * now / 1000 - current);
+    }
+  }
+  expect(newError).toBeLessThan(oldError * .8);
+});
+it('prediction is bounded and stops immediately when the face is lost', () => {
+  const f = ready();
+  for (let t = 40; t <= 160; t += 40) {
+    f.sample({ x: 5 + t, y: 30, z: 350 }, t, t + 30);
+    f.update(.04, t + 30);
+  }
+  const before = f.update(.016, 200);
+  expect(before.x).toBeLessThan(3 * 160 / 350 + .1);
+  f.sample(null, 210, 210);
+  for (let t = 210; t < 900; t += 16) expect(f.update(.016, t)).toEqual(before);
+});
+
+it('keeps display velocity continuous when a new eye result changes direction', () => {
+  const f = ready();
+  f.sample({ x: 40, y: 30, z: 350 }, 40);
+  const start = f.update(.016, 40).x;
+  const epsilon = .000001;
+  const before = f.update(epsilon, 40.001).x;
+  f.sample({ x: -40, y: 30, z: 350 }, 41);
+  const after = f.update(epsilon, 41).x;
+  const vBefore = (before - start) / epsilon;
+  const vAfter = (after - before) / epsilon;
+  expect(Math.abs(vAfter - vBefore)).toBeLessThan(.01);
+});
+it('gives the same fixed-target response at 30, 60 and 120 Hz', () => {
+  const results = [30, 60, 120].map(hz => {
+    const f = ready();
+    f.sample({ x: 40, y: 30, z: 350 }, 40);
+    let x = 0;
+    for (let i = 0; i < hz / 10; i++) x = f.update(1 / hz, 40 + i * 1000 / hz).x;
+    return x;
+  });
+  expect(results[0]).toBeCloseTo(results[1], 10);
+  expect(results[1]).toBeCloseTo(results[2], 10);
+});
+it('reaches a fixed target promptly without spring oscillation', () => {
+  const f = ready();
+  f.sample({ x: 40, y: 30, z: 350 }, 40);
+  let previous = 0;
+  for (let i = 0; i < 10; i++) {
+    const x = f.update(.008, 40 + i * 8).x;
+    expect(x).toBeGreaterThan(previous);
+    expect(x).toBeLessThan(.3);
+    previous = x;
+  }
+  expect(previous).toBeGreaterThan(.3 * .98);
+});

@@ -3,9 +3,10 @@ export interface Environment {
   name: string;
   texture: string;
   initialYaw: number;
+  themeColor: string;
 }
 
 export const environments: Environment[] = [
-  { id: 'dream', name: '星海浅眠', texture: `${import.meta.env.BASE_URL}environments/dream-sea.png`, initialYaw: 0.62 },
-  { id: 'lake', name: '清晨湖畔', texture: `${import.meta.env.BASE_URL}environments/quiet-lake.png`, initialYaw: 0 },
+  { id: 'dream', name: '星海浅眠', texture: `${import.meta.env.BASE_URL}environments/dream-sea.png`, initialYaw: 0.62, themeColor: '#a99ac3' },
+  { id: 'lake', name: '清晨湖畔', texture: `${import.meta.env.BASE_URL}environments/quiet-lake.png`, initialYaw: 0, themeColor: '#8a9087' },
 ];
