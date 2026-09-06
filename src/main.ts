@@ -46,7 +46,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
       <div class="entry-actions">
         <button id="enter" class="primary">打开这扇窗 ${icon('arrow')}</button>
         <button id="browse" class="text-button">先随便看看</button>
-        <p class="panel-note">网站使用摄像头识别双眼位置<br />请使用手机或电脑开启摄像头后浏览</p>
+        <p class="panel-note">网站使用摄像头识别双眼位置<br />请使用手机或电脑开启摄像头后浏览<br />添加到主屏幕后全屏浏览效果更佳</p>
       </div>
     </div>
     <div class="welcome-foot"><span class="fine-line"></span><span>一扇窗 · 一点留白</span><span class="fine-line"></span></div>
