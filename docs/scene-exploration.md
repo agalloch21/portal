@@ -8,7 +8,6 @@
 | --- | --- | --- |
 | public/environments/forest-8k.jpg | 8192 × 4096 | [Sunset Forest](https://polyhaven.com/a/sunset_forest)，Andreas Mischok，CC0，作者的 8K Tonemapped JPG |
 | public/environments/lake-8k.jpg | 8192 × 4096 | [Lakeside Dawn](https://polyhaven.com/a/lakeside_dawn)，Greg Zaal / Jarod Guest，CC0，作者的 8K Tonemapped JPG，经网页 JPEG 编码压缩，像素尺寸未改变 |
-| public/environments/cove-8k.jpg | 8192 × 4096 | [Secluded Beach](https://polyhaven.com/a/secluded_beach)，Greg Zaal，CC0，作者 8K Tonemapped JPG，经 JPEG 压缩，像素尺寸未改变 |
 | public/environments/underwater.png | 1774 × 887 | 内置 image_gen，2026-09-06，浅蓝之下 |
 | public/environments/nebula.png | 1774 × 887 | 内置 image_gen，2026-09-06，星云缓行 |
 | public/environments/star-greenhouse.png | 1774 × 887 | 之前的内置 image_gen 第二版星间花房 |
@@ -41,3 +40,12 @@ Asset: immersive mobile meditation environment texture. ONE full spherical 360x1
 森林浮光、水下微粒/气泡、星海漂浮微光、环游星尘与花瓣均由世界坐标中的 Points 绘制；水下光束为低透明度平面；流星为三维 Line。它们与全景共享投影和朝向，没有对背景做 UV 扭曲或动态缩放。暂停只冻结时间，摄像机仍能转动。
 
 背景没有深度图，粒子不能被图片中的树木或星球准确遮挡。生成图也不保证测量准确的球面结构，仅对生成图启用小范围接缝和极点缓和。摄影全景保留原始球面采样。真实 iPhone 清晰度、运动舒适度、显存与持续帧率需要用户验收。
+
+## 保留的新增梦境环境
+
+- `clouds.png` / `clouds-preview.webp`：云端花海，内置 image_gen，1774 × 887。桃粉云海、漂浮花岛、两侧花枝和远处落日。
+- `moonforest.png` / `moonforest-preview.webp`：月隐灵森，内置 image_gen，1774 × 887。深青灰绿的月夜森林，银白独角兽在中央偏右的林间空地，苔藓古树、蕨类、稀薄雾气。前景萤火虫由代码绘制，独角兽不动画。
+
+新夜林提示要求：完整 360×180 等距柱状 2:1 全景、左右边缘与极点连续、自然眼高、独角兽距观察点约 7 米且位于初始视野、单角、自然解剖与安静姿态；深青灰绿与银色月光，禁止霓虹紫和高饱和配色；无文字、UI 或边框。请求 4096×2048 或最高支持尺寸，实际返回 1774×887。生成素材不保证精确的球面几何。
+
+水母湾与梦窟图片已移出发布目录，仅保留在忽略的本地实验目录。动态不再使用水母或花瓣。

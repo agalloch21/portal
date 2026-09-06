@@ -17,7 +17,7 @@ async function fingerprint(page: Page) {
   })));
 }
 
-test('all seven scenes render, switch and have real preview assets on a phone viewport', async ({ page }) => {
+test('all eight scenes render, switch and have real preview assets on a phone viewport', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -26,11 +26,11 @@ test('all seven scenes render, switch and have real preview assets on a phone vi
   await page.goto('/');
   await expect(page.locator('body')).toHaveAttribute('data-environment', 'dream');
   await page.locator('#browse').click();
-  expect(await page.locator('.scene-option').evaluateAll(nodes => nodes.map(n => (n as HTMLElement).dataset.environment))).toEqual(['dream', 'underwater', 'space', 'greenhouse', 'forest', 'lake', 'cove']);
+  expect(await page.locator('.scene-option').evaluateAll(nodes => nodes.map(n => (n as HTMLElement).dataset.environment))).toEqual(['dream', 'underwater', 'space', 'greenhouse', 'clouds', 'moonforest', 'forest', 'lake']);
   const images = new Set<string>();
-  for (const [id, name] of [['dream', '星海浅眠'], ['underwater', '浅蓝之下'], ['space', '星云缓行'], ['greenhouse', '星间花房'], ['forest', '林间微光'], ['lake', '清晨湖畔'], ['cove', '静谧海湾']]) {
+  for (const [id, name] of [['dream', '星海浅眠'], ['underwater', '浅蓝之下'], ['space', '星云缓行'], ['greenhouse', '星间花房'], ['clouds', '云端花海'], ['moonforest', '月隐灵森'], ['forest', '林间微光'], ['lake', '清晨湖畔']]) {
     await page.locator('#scenes').click();
-    await expect(page.locator('.scene-option')).toHaveCount(7);
+    await expect(page.locator('.scene-option')).toHaveCount(8);
     expect(await page.locator('.scene-option img').evaluateAll(imgs => imgs.every(img => (img as HTMLImageElement).complete && (img as HTMLImageElement).naturalWidth > 0))).toBe(true);
     await page.locator(`button[data-environment="${id}"]`).click();
     await expect(page.locator('#scene-name')).toHaveText(name);
@@ -38,13 +38,14 @@ test('all seven scenes render, switch and have real preview assets on a phone vi
     const pixels = await sample(page);
     expect(pixels.some(v => v !== 0 && v !== 255)).toBe(true);
     images.add(JSON.stringify(pixels));
+    await page.screenshot({ path: test.info().outputPath(`${id}.png`) });
     expect(await page.locator('#world').boundingBox()).toEqual({ x: 0, y: 0, width: 390, height: 844 });
   }
-  expect(images.size).toBe(7);
+  expect(images.size).toBe(8);
   expect(errors).toEqual([]);
 });
 
-for (const scene of ['dream', 'underwater', 'space', 'greenhouse']) test(`ambient movement can pause in ${scene} while reduced-motion entry remains usable`, async ({ page }) => {
+for (const scene of ['dream', 'underwater', 'space', 'greenhouse', 'clouds', 'moonforest', 'forest', 'lake']) test(`ambient movement can pause in ${scene} while reduced-motion entry remains usable`, async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/?scene=' + scene);
   await expect(page.locator('body')).toHaveAttribute('data-environment', 'dream');

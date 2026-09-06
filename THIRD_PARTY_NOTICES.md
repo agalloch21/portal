@@ -25,7 +25,3 @@ https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/
 - `star-greenhouse.png`、`dream-sea.png` 和保留但未使用的 `quiet-lake.png`：此前内置 image_gen 生成的全景，均为 1774 × 887 普通 LDR PNG。原图保留在工具输出目录。
 
 站点背景不包含浮点 HDR 数据，不声称具备真实 HDR 动态范围。WebP 缩略图来自相应背景图；动态星点、微粒、气泡和流星为项目自有程序化几何，没有新增第三方模型。
-
-## Additional photographic panoramas
-
-- `cove-8k.jpg` and `cove-preview.webp`: [Secluded Beach](https://polyhaven.com/a/secluded_beach), Greg Zaal, CC0. Derived from the author's 8192 × 4096 tonemapped JPG; web JPEG recompression and preview resizing.
