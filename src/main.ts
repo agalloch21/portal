@@ -46,7 +46,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
       <div class="entry-actions">
         <button id="enter" class="primary">打开这扇窗 ${icon('arrow')}</button>
         <button id="browse" class="text-button">先随便看看</button>
-        <p class="panel-note">打开后使用前摄估计眼位，仅在本机处理，不录制、不上传。</p>
+        <p class="panel-note">网站使用摄像头识别双眼位置<br />请使用手机或电脑开启摄像头后浏览</p>
       </div>
     </div>
     <div class="welcome-foot"><span class="fine-line"></span><span>一扇窗 · 一点留白</span><span class="fine-line"></span></div>
@@ -77,8 +77,8 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     <button id="eye-center" class="text-button" type="button">重新采样眼位中心</button>
     <p id="eye-status" class="panel-note" role="status">眼位已关闭</p>
     <label for="eye-gain">眼位移动倍率 <output id="eye-gain-value" for="eye-gain">1.0 倍</output></label>
-    <input id="eye-gain" type="range" min="0.5" max="3" step="0.1" value="1" />
-    <div class="range-labels"><span>0.5 倍</span><span>1 倍 · 默认</span><span>3 倍</span></div>
+    <input id="eye-gain" type="range" min="1" max="3" step="0.1" value="1" />
+    <div class="range-labels"><span>1 倍 · 默认</span><span>3 倍</span></div>
     <button id="eye-gain-reset" class="text-button" type="button">恢复 1 倍</button>
     <p class="panel-note">调整头部移动的响应幅度，设置仅保存在本机。</p>
     <button id="ambient-motion" class="secondary" type="button" aria-pressed="true">风景微动：开</button>

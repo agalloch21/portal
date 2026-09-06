@@ -39,6 +39,6 @@ it('retains a symmetric 60 degree short-axis view at the centered eye', () => {
   expect(a.angleTo(b) * 180 / Math.PI).toBeCloseTo(60);
 });
 it('rejects invalid saved multipliers and accepts the supported range', () => {
-  for (const value of [null, '3', NaN, Infinity, 0, 9, {}]) expect(parseEyeGain(value)).toBe(1);
-  for (const value of [.5, 1, 2.5, 3]) expect(parseEyeGain(value)).toBe(value);
+  for (const value of [null, '3', NaN, Infinity, 0, .5, .9, 9, {}]) expect(parseEyeGain(value)).toBe(1);
+  for (const value of [1, 1.1, 2.5, 3]) expect(parseEyeGain(value)).toBe(value);
 });

@@ -20,5 +20,5 @@ export function offAxisProjection(size: { width: number; height: number }, eye: 
 }
 
 export function parseEyeGain(value: unknown) {
-  return typeof value === 'number' && Number.isFinite(value) && value >= .5 && value <= 3 ? value : 1;
+  return typeof value === 'number' && Number.isFinite(value) && value >= 1 && value <= 3 ? value : 1;
 }
