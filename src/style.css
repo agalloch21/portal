@@ -146,3 +146,10 @@ h1 { font-family: 'Portal Serif', 'Baskerville', 'Times New Roman', serif; font-
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition-duration: .01ms !important; }
 }
+
+/* Keep the local-camera explanation readable across the new scene palettes. */
+.welcome .panel-note { max-width: 310px; margin: 0 18px; padding: 9px 13px; border: 0; border-radius: 12px; color: #405052; background: #eef5efd4; }
+.scene-panel { overflow-y: auto; }
+
+#eye-gain { width: 100%; min-height: 36px; accent-color: #867394; touch-action: pan-x; }
+#eye-gain-value { float: right; font-variant-numeric: tabular-nums; }

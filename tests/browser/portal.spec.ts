@@ -1,13 +1,18 @@
 import { expect, test } from '@playwright/test';
 
+// Sensor pixel comparisons must not include unrelated environmental animation.
+test.beforeEach(async ({ page }) => { await page.emulateMedia({ reducedMotion: 'reduce' }); });
+
 test('welcome, manual exploration, scenes and auto-hidden controls', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.goto('/');
+  await page.goto('/?scene=underwater');
   await expect(page.locator('body')).toHaveClass(/scene-ready/);
+  await expect(page.locator('body')).toHaveAttribute('data-environment', 'dream');
   await expect(page.getByRole('heading', { name: 'Portal.' })).toBeVisible();
   await page.getByRole('button', { name: '先随便看看' }).click();
   await expect(page.locator('#toolbar')).toBeVisible();
+  await expect(page.locator('body')).toHaveAttribute('data-environment', 'underwater');
   await page.getByRole('button', { name: '切换环境' }).click();
   await page.locator('[data-environment="lake"]').click();
   await expect(page.locator('#scene-name')).toHaveText('清晨湖畔');
@@ -16,6 +21,9 @@ test('welcome, manual exploration, scenes and auto-hidden controls', async ({ pa
   await expect(page.locator('body')).toHaveClass(/controls-visible/);
   await page.getByRole('button', { name: '退出沉浸' }).click();
   await expect(page.locator('#welcome')).toBeVisible();
+  await expect(page.locator('body')).toHaveAttribute('data-environment', 'dream');
+  await page.locator('#browse').click();
+  await expect(page.locator('body')).toHaveAttribute('data-environment', 'lake');
   expect(errors).toEqual([]);
 });
 
@@ -79,15 +87,16 @@ test('fixed projection ignores old preferences and mobile settings stay usable',
   await page.goto('/');
   await page.getByRole('button', { name: '先随便看看' }).click();
   await page.getByRole('button', { name: '打开体验设置' }).click();
-  await expect(page.locator('input[type=range]')).toHaveCount(0);
+  await expect(page.locator('#eye-gain')).toHaveValue('1');
   await expect(page.getByRole('button', { name: '开启眼位追踪', exact: true })).toBeVisible();
   for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {
     await page.setViewportSize(viewport);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(await page.locator('#world').boundingBox()).toEqual({ x: 0, y: 0, ...viewport });
-    const panel = await page.locator('#view-dialog').boundingBox();
-    expect(panel!.y).toBeGreaterThanOrEqual(0);
-    expect(panel!.height).toBeLessThanOrEqual(viewport.height);
+    await expect.poll(async () => {
+      const panel = await page.locator('#view-dialog').boundingBox();
+      return Boolean(panel && panel.y >= 0 && panel.height <= viewport.height);
+    }).toBe(true);
   }
 });
 
@@ -272,4 +281,44 @@ test('text selection, context menus and native dragging are disabled without blo
   await expect(page.locator('#viewport-data')).toContainText('可见高度');
   await page.getByRole('button', { name: '关闭体验设置' }).click();
   await expect(page.locator('#view-dialog')).not.toBeVisible();
+});
+
+
+test('primary entry enables eyes by default on every visit, even after switching them off', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { cameraCalls: number }).cameraCalls = 0;
+    Object.defineProperty(DeviceOrientationEvent, 'requestPermission', { value: async () => 'denied' });
+    Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { value: () => {
+      (window as unknown as { cameraCalls: number }).cameraCalls++;
+      return new Promise(() => {});
+    } });
+  });
+  await page.goto('/');
+  for (let visit = 1; visit <= 2; visit++) {
+    await page.locator('#enter').click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { cameraCalls: number }).cameraCalls)).toBe(visit);
+    await page.locator('#view-settings').click();
+    await expect(page.locator('#eyes')).toHaveAttribute('aria-pressed', 'true');
+    await page.locator('#eyes').click();
+    await expect(page.locator('#eyes')).toHaveAttribute('aria-pressed', 'false');
+    await page.locator('#view-dialog [data-close]').click();
+    await page.locator('#exit').click();
+  }
+});
+
+
+test('eye multiplier defaults to one, persists and resets in settings', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('#browse').click();
+  await page.locator('#view-settings').click();
+  await expect(page.locator('#eye-gain')).toHaveValue('1');
+  await page.locator('#eye-gain').fill('2.5');
+  await expect(page.locator('#eye-gain-value')).toHaveText('2.5 倍');
+  await page.reload();
+  await page.locator('#browse').click();
+  await page.locator('#view-settings').click();
+  await expect(page.locator('#eye-gain')).toHaveValue('2.5');
+  await page.locator('#eye-gain-reset').click();
+  await expect(page.locator('#eye-gain')).toHaveValue('1');
+  expect(await page.evaluate(() => localStorage.getItem('portal-eye-gain'))).toBe('1');
 });

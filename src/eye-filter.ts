@@ -5,9 +5,6 @@ export class EyeFilter {
   private samples: { eye: Eye; time: number }[] = [];
   private baseline: Eye | null = null;
   private target = { x: 0, y: 0 };
-  private velocity = { x: 0, y: 0 };
-  private predicting = false;
-  private motionSamples = 0;
   private current = { x: 0, y: 0 };
   private renderVelocity = { x: 0, y: 0 };
   private lastSeen = -Infinity;
@@ -16,10 +13,7 @@ export class EyeFilter {
   visible(now: number) { return this.calibrated && now - this.lastSeen < 650; }
 
   reset() {
-    this.velocity = { x: 0, y: 0 };
     this.renderVelocity = { x: 0, y: 0 };
-    this.predicting = false;
-    this.motionSamples = 0;
     this.samples = [];
     this.baseline = null;
     this.target = { x: 0, y: 0 };
@@ -30,10 +24,7 @@ export class EyeFilter {
     if (!eye) {
       this.samples = [];
       this.target = { ...this.current };
-      this.velocity = { x: 0, y: 0 };
       this.renderVelocity = { x: 0, y: 0 };
-      this.predicting = false;
-      this.motionSamples = 0;
       return;
     }
     if (![eye.x, eye.y, eye.z, now, receivedAt].every(Number.isFinite) || eye.z < 150 || eye.z > 1000 || now <= this.lastInput) return;
@@ -52,42 +43,27 @@ export class EyeFilter {
     }
     // Every valid observation contributes, including large off-center movements.
     // Gain changes lateral response, never projection focal distance.
-    const x = 3 * (eye.x - this.baseline.x) / eye.z;
-    const y = 3 * (eye.y - this.baseline.y) / eye.z;
+    const x = (eye.x - this.baseline.x) / eye.z;
+    const y = (eye.y - this.baseline.y) / eye.z;
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-    if (this.predicting && gap > 0 && gap < 200 && receivedAt - this.lastSeen < 200) {
-      const vx = (x - this.target.x) / (gap / 1000);
-      const vy = (y - this.target.y) / (gap / 1000);
-      const reversed = vx * this.velocity.x + vy * this.velocity.y < 0;
-      this.motionSamples = Math.hypot(vx, vy) > .15 ? reversed ? 1 : this.motionSamples + 1 : 0;
-      const blend = reversed || Math.hypot(vx, vy) < .04 ? 1 : .5;
-      this.velocity.x += (vx - this.velocity.x) * blend;
-      this.velocity.y += (vy - this.velocity.y) * blend;
-    } else this.velocity = { x: 0, y: 0 };
-    this.predicting = true;
     this.lastSeen = receivedAt;
     this.target = { x, y };
   }
 
   update(dt: number, now: number) {
-    // Freeze on silence; prediction must never keep moving after tracking loss.
+    // Freeze the displayed position when observations stop.
     if (this.baseline && now - this.lastSeen > 200) {
       this.target = { ...this.current };
-      this.velocity = { x: 0, y: 0 };
       this.renderVelocity = { x: 0, y: 0 };
-      this.predicting = false;
-      this.motionSamples = 0;
     }
-    const speed = Math.hypot(this.velocity.x, this.velocity.y);
-    // A short bounded lead compensates for capture/inference latency between results.
-    const horizon = this.predicting && this.motionSamples >= 2 ? clamp((now - this.lastInput) / 1000, 0, .05) : 0;
-    const lead = Math.min(horizon, .1 / Math.max(speed, .0001));
-    const target = { x: this.target.x + this.velocity.x * lead, y: this.target.y + this.velocity.y * lead };
+    const target = this.target;
     // A critically damped spring carries velocity across observation updates.
     // Its exact solution is stable across refresh rates and avoids per-result
     // velocity jumps caused by reweighting a first-order interpolation.
     const step = clamp(dt, 0, .1);
-    const omega = 75;
+    // Favor quiet motion over minimum latency; do not extrapolate noisy observations.
+    // A sustained step reaches 90% in about 195 ms, 98% in about 292 ms.
+    const omega = 20;
     const decay = Math.exp(-omega * step);
     for (const axis of ['x', 'y'] as const) {
       const displacement = this.current[axis] - target[axis];

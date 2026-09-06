@@ -47,7 +47,8 @@ export function estimateEye(face: FaceObservation, calibration: Calibration, vie
   let y = -(face.centerY - face.height / 2) * z / focal;
   // Browsers generally deliver upright frames. Rotate only a portrait/landscape mismatch.
   if ((face.width > face.height) !== (viewport.width > viewport.height)) {
-    const r = -angle * Math.PI / 180;
+    // Undo the screen basis rotation used by deviceQuaternion (Rz(-angle)).
+    const r = angle * Math.PI / 180;
     [x, y] = [x * Math.cos(r) - y * Math.sin(r), x * Math.sin(r) + y * Math.cos(r)];
   }
   const size = screenSize(viewport.width, viewport.height, calibration.shortEdgeMm);

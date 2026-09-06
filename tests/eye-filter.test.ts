@@ -20,35 +20,35 @@ it('smooths every small valid movement and rejects invalid observations', () => 
   f.sample({ x: 6, y: 30, z: 350 }, 70);
   const first = f.update(.07, 70).x;
   expect(first).toBeGreaterThan(0);
-  expect(first).toBeLessThan(3 / 350);
+  expect(first).toBeLessThan(1 / 350);
   f.sample({ x: NaN, y: 30, z: 350 }, 140);
   f.sample({ x: 100, y: 30, z: 350 }, 60);
   const next = f.update(.07, 140).x;
   expect(next).toBeGreaterThan(first);
-  expect(next).toBeLessThan(3 / 350);
+  expect(next).toBeLessThan(1 / 350);
 });
-it('triples lateral displacement while retaining the fixed projection', () => {
+it('preserves unit lateral displacement while retaining the fixed projection', () => {
   const f = ready();
   let offset = { x: 0, y: 0 };
   for (let t = 70; t < 2100; t += 70) {
     f.sample({ x: 40, y: 30, z: 350 }, t);
     offset = f.update(.07, t);
   }
-  expect(offset.x).toBeCloseTo(.3, 5);
+  expect(offset.x).toBeCloseTo(.1, 5);
   const { size, eye } = panoramaView(390, 844);
   const angle = rayForPixel(-size.width/2, 0, eye).angleTo(rayForPixel(size.width/2, 0, eye));
   expect(angle * 180 / Math.PI).toBeCloseTo(60);
   const focal = eye.z;
   eye.x = offset.x * eye.z;
-  expect(rayForPixel(0, 0, eye).x).toBeLessThan(-.28);
+  expect(rayForPixel(0, 0, eye).x).toBeLessThan(-.09);
   expect(eye.z).toBe(focal);
 });
 it('accepts an immediate large movement and continues beyond the old cap in both axes', () => {
   const f = ready();
   f.sample({ x: 180, y: -145, z: 350 }, 70);
   const first = f.update(.07, 70);
-  expect(first.x).toBeGreaterThan(.25);
-  expect(first.y).toBeLessThan(-.25);
+  expect(first.x).toBeGreaterThan(.08);
+  expect(first.y).toBeLessThan(-.08);
   f.sample({ x: 355, y: -320, z: 350 }, 140);
   const second = f.update(.07, 140);
   expect(second.x).toBeGreaterThan(first.x);
@@ -62,7 +62,7 @@ it('keeps off-center camera estimates instead of clipping them to 250 mm', () =>
   expect(eye.y).toBeGreaterThan(250);
   const f = ready();
   f.sample(eye, 70);
-  expect(f.update(.07, 70).x).toBeGreaterThan(.25);
+  expect(f.update(.07, 70).x).toBeGreaterThan(.08);
 });
 it('freezes the displayed position on loss and accepts distant reacquisition', () => {
   const f = ready();
@@ -74,7 +74,12 @@ it('freezes the displayed position on loss and accepts distant reacquisition', (
   for (let t = 900; t < 4000; t += 100) result = f.update(.1, t);
   expect(result.x).toBe(first);
   f.sample({ x: -170, y: 30, z: 350 }, 4100);
-  expect(f.update(.07, 4100).x).toBeLessThan(-.25);
+  expect(f.update(.07, 4100).x).toBeLessThan(first);
+  for (let t = 4140; t <= 4500; t += 40) {
+    f.sample({ x: -170, y: 30, z: 350 }, t);
+    f.update(.04, t);
+  }
+  expect(f.update(.016, 4500).x).toBeLessThan(-.46);
 });
 it('explicit recalibration recenters and requires a fresh stable window', () => {
   const f = ready();
@@ -116,38 +121,35 @@ it('updates between observation frames instead of stepping only on inference', (
   for (let t = 40; t < 100; t += 16) {
     const x = f.update(.016, t).x;
     expect(x).toBeGreaterThan(previous);
-    expect(x).toBeLessThan(.3);
+    expect(x).toBeLessThan(.1);
     previous = x;
   }
 });
 
-it('reduces constant-motion lag with delayed 15 Hz observations', () => {
+it('attenuates alternating camera jitter while preserving a sustained displacement', () => {
   const f = ready();
-  let nextCapture = 0, old = 0, oldTarget = 0, oldError = 0, newError = 0;
-  for (let now = 0; now <= 1600; now += 16) {
-    while (nextCapture + 50 <= now) {
-      oldTarget = .5 * nextCapture / 1000;
-      f.sample({ x: 5 + oldTarget * 350 / 3, y: 30, z: 350 }, nextCapture, now);
-      nextCapture += 1000 / 15;
+  const outputs: number[] = [];
+  for (let frame = 1; frame <= 240; frame++) {
+    const now = frame * 1000 / 60;
+    if (frame % 2 === 0) {
+      const jitter = frame % 4 === 0 ? 3 : -3;
+      f.sample({ x: 40 + jitter, y: 30, z: 350 }, now);
     }
-    const current = f.update(.016, now).x;
-    const tau = Math.max(.035, .14 / (1 + 12 * Math.abs(oldTarget - old)));
-    old += (oldTarget - old) * (1 - Math.exp(-.016 / tau));
-    if (now > 500) {
-      oldError += Math.abs(.5 * now / 1000 - old);
-      newError += Math.abs(.5 * now / 1000 - current);
-    }
+    const x = f.update(1 / 60, now).x;
+    if (frame > 60) outputs.push(x);
   }
-  expect(newError).toBeLessThan(oldError * .8);
+  const rawPeakToPeak = 6 / 350;
+  expect(Math.max(...outputs) - Math.min(...outputs)).toBeLessThan(rawPeakToPeak * .1);
+  expect(outputs.reduce((a, b) => a + b, 0) / outputs.length).toBeCloseTo(.1, 3);
 });
-it('prediction is bounded and stops immediately when the face is lost', () => {
+it('does not extrapolate the observed position and freezes immediately on loss', () => {
   const f = ready();
   for (let t = 40; t <= 160; t += 40) {
     f.sample({ x: 5 + t, y: 30, z: 350 }, t, t + 30);
     f.update(.04, t + 30);
   }
   const before = f.update(.016, 200);
-  expect(before.x).toBeLessThan(3 * 160 / 350 + .1);
+  expect(before.x).toBeLessThan(160 / 350);
   f.sample(null, 210, 210);
   for (let t = 210; t < 900; t += 16) expect(f.update(.016, t)).toEqual(before);
 });
@@ -175,15 +177,17 @@ it('gives the same fixed-target response at 30, 60 and 120 Hz', () => {
   expect(results[0]).toBeCloseTo(results[1], 10);
   expect(results[1]).toBeCloseTo(results[2], 10);
 });
-it('reaches a fixed target promptly without spring oscillation', () => {
+it('deliberately eases into a fixed target and settles without oscillation', () => {
   const f = ready();
   f.sample({ x: 40, y: 30, z: 350 }, 40);
   let previous = 0;
-  for (let i = 0; i < 10; i++) {
-    const x = f.update(.008, 40 + i * 8).x;
+  for (let i = 1; i <= 10; i++) {
+    f.sample({ x: 40, y: 30, z: 350 }, 40 + i * 40);
+    const x = f.update(.04, 40 + i * 40).x;
+    if (i === 2) expect(x).toBeLessThan(.1 * .6);
     expect(x).toBeGreaterThan(previous);
-    expect(x).toBeLessThan(.3);
+    expect(x).toBeLessThan(.1);
     previous = x;
   }
-  expect(previous).toBeGreaterThan(.3 * .98);
+  expect(previous).toBeGreaterThan(.1 * .98);
 });

@@ -61,6 +61,16 @@ describe('eye estimates and calibration', () => {
     expect(center.y).toBeGreaterThan(0);
     expect(leftInImage.x).toBeGreaterThan(center.x);
   });
+  it('maps portrait camera pixels into both landscape screen bases with the correct vertical sign', () => {
+    for (const angle of [90, -90]) {
+      const portraitFrame = { ...observation, width: 480, height: 640, centerX: 240, centerY: 320 };
+      const viewport = { width: 844, height: 390 };
+      const a = estimateEye(portraitFrame, defaults, viewport, angle)!;
+      const b = estimateEye({ ...portraitFrame, centerX: 220 }, defaults, viewport, angle)!;
+      expect(Math.sign(b.y - a.y)).toBe(Math.sign(angle));
+      expect(b.x).toBeCloseTo(a.x);
+    }
+  });
   it('accounts for a turned head instead of treating it as farther away', () => {
     const front = estimateEye(observation, defaults, viewport, 0)!;
     const turned = estimateEye({ ...observation, eyePixels: 70, foreshortening: .7 }, defaults, viewport, 0)!;

@@ -2,10 +2,11 @@ import './style.css';
 import { Euler, Quaternion } from 'three';
 import { environments } from './environments';
 import { clamp, defaults, estimateEye } from './geometry';
-import { DEFAULT_FOV, panoramaView } from './view';
+import { DEFAULT_FOV, panoramaView, offAxisEye, parseEyeGain } from './view';
 import { Orientation, screenAngle } from './orientation';
 import { EyeTracker } from './tracking';
 import { EyeFilter } from './eye-filter';
+import { EyeMotionFrame } from './eye-motion';
 import { PortalRenderer } from './renderer';
 
 document.addEventListener('selectstart', event => event.preventDefault());
@@ -51,7 +52,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     <div class="welcome-foot"><span class="fine-line"></span><span>一扇窗 · 一点留白</span><span class="fine-line"></span></div>
   </section>
   <section id="immersive" hidden aria-label="沉浸模式">
-    <header id="scene-caption" class="scene-caption"><span class="scene-number">01 / 02</span><h2 id="scene-name">星海浅眠</h2><span class="caption-line"></span></header>
+    <header id="scene-caption" class="scene-caption"><span class="scene-number">01 / ${String(environments.length).padStart(2, '0')}</span><h2 id="scene-name">星海浅眠</h2><span class="caption-line"></span></header>
     <div id="toolbar-area" class="toolbar-area">
       <p id="tracking-status" class="tracking-status" role="status">轻轻拖动，看看别处</p>
       <nav id="toolbar" class="toolbar" aria-label="环境控制">
@@ -67,7 +68,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
   </section>
   <dialog id="scene-dialog" aria-labelledby="scene-dialog-title" class="panel scene-panel">
     <div class="panel-heading"><div><p class="eyebrow">SOMEWHERE ELSE</p><h2 id="scene-dialog-title">此刻，想去哪里？</h2></div><button class="icon-button" data-close aria-label="关闭环境选择">${icon('close')}</button></div>
-    <div class="scene-options">${environments.map((env, i) => `<button class="scene-option" data-environment="${env.id}" aria-pressed="${i === 0}"><img src="${env.texture}" alt="${env.name}全景预览"/><span class="scene-option-shade"></span><span class="scene-option-copy"><small>0${i + 1}</small><strong>${env.name}</strong><span>${i === 0 ? '漂浮在柔软的宇宙里' : '听见安静，虽然没有声音'}</span></span><span class="scene-selected">${icon('check')}</span></button>`).join('')}</div>
+    <div class="scene-options">${environments.map((env, i) => `<button class="scene-option" data-environment="${env.id}" aria-pressed="${i === 0}"><img src="${env.preview}" alt="${env.name}预览"/><span class="scene-option-shade"></span><span class="scene-option-copy"><small>0${i + 1} · ${env.resolution}</small><strong>${env.name}</strong><span>${env.description}</span></span><span class="scene-selected">${icon('check')}</span></button>`).join('')}</div>
   </dialog>
   <dialog id="view-dialog" aria-labelledby="view-title" class="panel view-panel">
     <div class="panel-heading"><div><p class="eyebrow">MAKE YOURSELF AT HOME</p><h2 id="view-title">自在地看一会儿</h2></div><button class="icon-button" data-close aria-label="关闭体验设置">${icon('close')}</button></div>
@@ -75,6 +76,13 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     <button id="eyes" class="secondary" aria-pressed="false">开启眼位追踪</button>
     <button id="eye-center" class="text-button" type="button">重新采样眼位中心</button>
     <p id="eye-status" class="panel-note" role="status">眼位已关闭</p>
+    <label for="eye-gain">眼位移动倍率 <output id="eye-gain-value" for="eye-gain">1.0 倍</output></label>
+    <input id="eye-gain" type="range" min="0.5" max="3" step="0.1" value="1" />
+    <div class="range-labels"><span>0.5 倍</span><span>1 倍 · 默认</span><span>3 倍</span></div>
+    <button id="eye-gain-reset" class="text-button" type="button">恢复 1 倍</button>
+    <p class="panel-note">调整头部移动的响应幅度，设置仅保存在本机。</p>
+    <button id="ambient-motion" class="secondary" type="button" aria-pressed="true">风景微动：开</button>
+    <p class="panel-note">星尘、气泡、光束与花瓣会缓慢活动；关闭后，风景静止，眼位跟随仍然保留。</p>
     <details id="performance-details"><summary>性能数据</summary><p id="performance-data" class="panel-note">等待数据</p><p id="viewport-data" class="panel-note"></p><p class="panel-note">追踪频率包含未识别人脸的结果；处理耗时不包含相机曝光与系统采集延迟。</p></details>
     <div class="display-options">
       <button id="fullscreen" class="secondary" type="button">${icon('full')} 全屏显示</button>
@@ -95,7 +103,20 @@ catch { $('render-error').hidden = false; $<HTMLButtonElement>('enter').disabled
 const orientation = new Orientation();
 const tracker = new EyeTracker();
 const eyeFilter = new EyeFilter();
+const eyeMotion = new EyeMotionFrame();
 let eyesWanted = false;
+let eyeGain = 1;
+try { eyeGain = parseEyeGain(JSON.parse(localStorage.getItem('portal-eye-gain') ?? '1')); } catch { /* Storage may be unavailable. */ }
+let renderedEyeGain = eyeGain;
+function updateEyeGain(value: number) {
+  eyeGain = parseEyeGain(value);
+  $<HTMLInputElement>('eye-gain').value = String(eyeGain);
+  $('eye-gain-value').textContent = `${eyeGain.toFixed(1)} 倍`;
+  try { localStorage.setItem('portal-eye-gain', JSON.stringify(eyeGain)); } catch { /* Still usable without storage. */ }
+}
+updateEyeGain(eyeGain);
+$('eye-gain').addEventListener('input', () => updateEyeGain($<HTMLInputElement>('eye-gain').valueAsNumber));
+$('eye-gain-reset').addEventListener('click', () => updateEyeGain(1));
 let eyeAngle = screenAngle();
 let eyeResultReceived = false;
 let faceDetected = false;
@@ -103,18 +124,34 @@ tracker.onFace = (face, timestamp) => {
   eyeResultReceived = true;
   faceDetected = face !== null;
   const angle = screenAngle();
-  if (angle !== eyeAngle) { eyeFilter.reset(); eyeAngle = angle; }
-  eyeFilter.sample(face ? estimateEye(face, defaults, { width: canvas.clientWidth, height: canvas.clientHeight }, angle) : null, timestamp, performance.now());
+  if (angle !== eyeAngle) { eyeFilter.reset(); eyeMotion.reset(); eyeAngle = angle; }
+  const eye = face ? estimateEye(face, defaults, { width: canvas.clientWidth, height: canvas.clientHeight }, angle) : null;
+  if (!eye) { eyeFilter.sample(null, timestamp, performance.now()); return; }
+  const observation = eyeMotion.observation(eye, orientation.poseAt(timestamp));
+  if (observation.changed) eyeFilter.reset();
+  eyeFilter.sample(observation.eye, timestamp, performance.now());
 };
 tracker.onState = state => {
   if (state === 'denied' || state === 'error') {
     eyesWanted = false;
-    eyeFilter.reset();
+    eyeFilter.reset(); eyeMotion.reset();
     toast(state === 'denied' ? '摄像头未开启，仍可随手机或拖动浏览。' : '眼位暂时无法使用，仍可继续浏览。');
   }
   status();
 };
-let selected = environments[0];
+const welcomeEnvironment = environments.find(env => env.id === 'dream')!;
+let preferredEnvironment = environments.find(env => env.id === new URLSearchParams(location.search).get('scene')) ?? welcomeEnvironment;
+let selected = welcomeEnvironment;
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+let ambientMotion = !reducedMotion.matches;
+function updateAmbientMotion() {
+  renderer?.setAmbientMotion(ambientMotion);
+  $('ambient-motion').textContent = `风景微动：${ambientMotion ? '开' : '关'}`;
+  $('ambient-motion').setAttribute('aria-pressed', String(ambientMotion));
+}
+updateAmbientMotion();
+$('ambient-motion').addEventListener('click', () => { ambientMotion = !ambientMotion; updateAmbientMotion(); });
+reducedMotion.addEventListener('change', () => { ambientMotion = !reducedMotion.matches; updateAmbientMotion(); });
 updateDisplayMode();
 matchMedia('(display-mode: standalone)').addEventListener('change', updateDisplayMode);
 let mode: 'welcome' | 'immersive' = 'welcome';
@@ -208,6 +245,7 @@ function enter(withSensors: boolean) {
   if (!renderer) return;
   ++session;
   mode = 'immersive';
+  void chooseEnvironment(preferredEnvironment.id);
   suspended = false;
   motionWanted = withSensors;
   $('welcome').hidden = true;
@@ -222,11 +260,12 @@ function enter(withSensors: boolean) {
 function exit() {
   ++session;
   mode = 'welcome';
+  void chooseEnvironment(welcomeEnvironment.id);
   suspended = false;
   motionWanted = false;
   eyesWanted = false;
   tracker.stop();
-  eyeFilter.reset();
+  eyeFilter.reset(); eyeMotion.reset();
   orientation.stop();
   orientation.recenter();
   dialogs.forEach(dialog => dialog.close());
@@ -248,11 +287,17 @@ async function chooseEnvironment(id: string) {
   try {
     if (!await renderer.load(environment)) return;
     selected = environment;
+    if (mode === 'immersive') {
+      preferredEnvironment = selected;
+      const url = new URL(location.href);
+      url.searchParams.set('scene', selected.id);
+      history.replaceState(null, '', url);
+    }
     manualYaw = manualPitch = 0;
     orientation.recenter();
     $('scene-name').textContent = selected.name;
-    document.querySelector('.scene-number')!.textContent = `${selected.id === 'dream' ? '01' : '02'} / 02`;
-    document.querySelectorAll<HTMLButtonElement>('[data-environment]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.environment === selected.id)));
+    document.querySelector('.scene-number')!.textContent = `${String(environments.indexOf(selected) + 1).padStart(2, '0')} / ${String(environments.length).padStart(2, '0')}`;
+    document.querySelectorAll<HTMLButtonElement>('button[data-environment]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.environment === selected.id)));
     document.body.dataset.environment = selected.id;
     document.documentElement.style.setProperty('--scene-background', selected.themeColor);
     updateDisplayMode();
@@ -268,7 +313,7 @@ $('browse').addEventListener('click', () => enter(false));
 $('exit').addEventListener('click', exit);
 $('resume-exit').addEventListener('click', exit);
 $('scenes').addEventListener('click', () => openPanel('scene-dialog'));
-document.querySelectorAll<HTMLButtonElement>('[data-environment]').forEach(button => button.addEventListener('click', () => { void chooseEnvironment(button.dataset.environment!); $<HTMLDialogElement>('scene-dialog').close(); }));
+document.querySelectorAll<HTMLButtonElement>('button[data-environment]').forEach(button => button.addEventListener('click', () => { void chooseEnvironment(button.dataset.environment!); $<HTMLDialogElement>('scene-dialog').close(); }));
 $('motion').addEventListener('click', () => {
   if (motionWanted) {
     ++session;
@@ -294,16 +339,16 @@ $('view-settings').addEventListener('click', () => {
 function startEyes() {
   eyesWanted = true;
   eyeResultReceived = faceDetected = false;
-  eyeFilter.reset();
+  eyeFilter.reset(); eyeMotion.reset();
   eyeAngle = screenAngle();
   void tracker.start();
 }
 $('eyes').addEventListener('click', () => {
-  if (eyesWanted) { eyesWanted = false; tracker.stop(); eyeFilter.reset(); }
+  if (eyesWanted) { eyesWanted = false; tracker.stop(); eyeFilter.reset(); eyeMotion.reset(); }
   else startEyes();
   status();
 });
-$('eye-center').addEventListener('click', () => { eyeFilter.reset(); status(); });
+$('eye-center').addEventListener('click', () => { eyeFilter.reset(); eyeMotion.reset(); status(); });
 $('fullscreen').addEventListener('click', async () => {
   try {
     if (document.fullscreenElement) await document.exitFullscreen();
@@ -357,7 +402,7 @@ function suspend() {
   ++session;
   suspended = true;
   tracker.stop();
-  eyeFilter.reset();
+  eyeFilter.reset(); eyeMotion.reset();
   orientation.stop();
   pointer = null;
   dialogs.forEach(dialog => dialog.close());
@@ -391,12 +436,13 @@ function draw(now: number) {
   renderFrameSeconds = renderFrameSeconds ? renderFrameSeconds * .95 + elapsed * .05 : elapsed;
   renderFps = 1 / renderFrameSeconds;
   // The same projection is used before/after permission, during stale events and on resume.
-  const { size, eye } = panoramaView(canvas.clientWidth || innerWidth, canvas.clientHeight || innerHeight);
+  const { size } = panoramaView(canvas.clientWidth || innerWidth, canvas.clientHeight || innerHeight);
   const offset = eyeFilter.update(dt, now);
-  if (mode === 'immersive') { eye.x = offset.x * eye.z; eye.y = offset.y * eye.z; }
   const base = new Quaternion().setFromEuler(new Euler(manualPitch, -selected.initialYaw + manualYaw, 0, 'YXZ'));
   if (mode === 'immersive') base.multiply(orientation.update(dt, now));
-  renderer.draw(eye, size, base);
+  renderedEyeGain += (eyeGain - renderedEyeGain) * (1 - Math.exp(-dt / .15));
+  const eye = offAxisEye(mode === 'immersive' ? eyeMotion.screenOffset(offset, orientation.poseAt(now)) : { x: 0, y: 0 }, renderedEyeGain);
+  renderer.draw(size, base, eye);
   if (mode === 'immersive') {
     if (now - lastStatusTime > 200) { status(); lastStatusTime = now; }
     frameCount++;
